@@ -2,7 +2,6 @@ use std::{rc::Rc, time::SystemTime};
 
 use futures_util::future::{ready, Ready};
 use serde::{Deserialize, Serialize};
-use time::Duration;
 
 use actix_web::{
     cookie::{Cookie, CookieJar, Key, SameSite},
@@ -21,11 +20,11 @@ struct CookieIdentityInner {
     path: String,
     domain: Option<String>,
     secure: bool,
-    max_age: Option<Duration>,
+    max_age: Option<time_03::Duration>,
     http_only: Option<bool>,
     same_site: Option<SameSite>,
-    visit_deadline: Option<Duration>,
-    login_deadline: Option<Duration>,
+    visit_deadline: Option<time_03::Duration>,
+    login_deadline: Option<time_03::Duration>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -89,7 +88,9 @@ impl CookieIdentityInner {
         }
 
         if let Some(max_age) = self.max_age {
-            cookie.set_max_age(max_age);
+            // Convert from time 0.3 down to time 0.2 here.
+            let (secs, nanos) = (max_age.whole_seconds(), max_age.subsec_nanoseconds());
+            cookie.set_max_age(time_02::Duration::new(secs, nanos));
         }
 
         if let Some(http_only) = self.http_only {
@@ -244,14 +245,14 @@ impl CookieIdentityPolicy {
     }
 
     /// Sets the `Max-Age` attribute of issued cookies.
-    pub fn max_age(mut self, value: Duration) -> CookieIdentityPolicy {
+    pub fn max_age(mut self, value: time_03::Duration) -> CookieIdentityPolicy {
         self.inner_mut().max_age = Some(value);
         self
     }
 
     /// Sets the `Max-Age` attribute of issued cookies with given number of seconds.
     pub fn max_age_secs(self, seconds: i64) -> CookieIdentityPolicy {
-        self.max_age(Duration::seconds(seconds))
+        self.max_age(time_03::Duration::seconds(seconds))
     }
 
     /// Sets the `HttpOnly` attribute of issued cookies.
@@ -277,7 +278,7 @@ impl CookieIdentityPolicy {
     /// visitation timestamp.
     ///
     /// By default, visit deadline is disabled.
-    pub fn visit_deadline(mut self, deadline: Duration) -> CookieIdentityPolicy {
+    pub fn visit_deadline(mut self, deadline: time_03::Duration) -> CookieIdentityPolicy {
         self.inner_mut().visit_deadline = Some(deadline);
         self
     }
@@ -290,7 +291,7 @@ impl CookieIdentityPolicy {
     /// into the issued cookies, making it immutable to users.
     ///
     /// By default, login deadline is disabled.
-    pub fn login_deadline(mut self, deadline: Duration) -> CookieIdentityPolicy {
+    pub fn login_deadline(mut self, deadline: time_03::Duration) -> CookieIdentityPolicy {
         self.inner_mut().login_deadline = Some(deadline);
         self
     }
@@ -377,7 +378,7 @@ mod tests {
         test::{self, TestRequest},
         web, App, HttpResponse,
     };
-    use time::Duration;
+    use time_03::Duration;
 
     use super::*;
     use crate::{tests::*, Identity, IdentityService};
@@ -515,7 +516,8 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_identity_max_age_time() {
-        let duration = Duration::days(1);
+        let duration_02 = time_02::Duration::days(1);
+        let duration_03 = time_03::Duration::days(1);
 
         let srv = test::init_service(
             App::new()
@@ -524,7 +526,7 @@ mod tests {
                         .domain("www.rust-lang.org")
                         .name(COOKIE_NAME)
                         .path("/")
-                        .max_age(duration)
+                        .max_age(duration_03)
                         .secure(true),
                 ))
                 .service(web::resource("/login").to(|id: Identity| {
@@ -538,7 +540,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(resp.headers().contains_key(header::SET_COOKIE));
         let c = resp.response().cookies().next().unwrap().to_owned();
-        assert_eq!(duration, c.max_age().unwrap());
+        assert_eq!(duration_02, c.max_age().unwrap());
     }
 
     #[actix_rt::test]
@@ -626,7 +628,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(resp.headers().contains_key(header::SET_COOKIE));
         let c = resp.response().cookies().next().unwrap().to_owned();
-        assert_eq!(Duration::seconds(seconds as i64), c.max_age().unwrap());
+        assert_eq!(time_02::Duration::seconds(seconds as i64), c.max_age().unwrap());
     }
 
     #[actix_rt::test]
